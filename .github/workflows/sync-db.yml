@@ -16,7 +16,7 @@ steps:
 uses: actions/checkout@v4
 
 - name: Download db.json
-run: curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/LunaTV-config.json" -o db.json
+run: curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o db.json
 
 - name: Commit changes
 run: |
