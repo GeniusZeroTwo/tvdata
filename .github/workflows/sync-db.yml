@@ -20,12 +20,13 @@ jobs:
       - name: Download and Process JSON
         run: |
           # 1. 下载原始文件
-          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.json
+          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw_with_comments.json
           
-          # 2. 使用 jq 处理对象结构并转换为数组
-          # to_entries 会把 {"k": {"name": "..."}} 变成 [{"key": "k", "value": {"name": "..."}}]
-          # 然后我们重新构造每一个元素
-          cat raw.json | jq '{
+          # 2. 清理注释 (移除 // 及其后的内容) 并转换为标准 JSON
+          # 然后使用 jq 将对象键名转为 "key" 字段
+          cat raw_with_comments.json | \
+          sed 's/\/\/.*//g' | \
+          jq '{
             sites: [ to_entries[] | {
               key: .key,
               name: .value.name,
@@ -34,8 +35,8 @@ jobs:
             } ]
           }' > db.json
           
-          # 打印结果检查格式
-          cat db.json
+          # 3. 验证结果
+          head -n 20 db.json
 
       - name: Configure Git
         run: |
@@ -46,7 +47,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: convert object to sites array"
+            git commit -m "chore: sync sites, remove comments and format keys"
             git push
           else
             echo "No changes to commit"
