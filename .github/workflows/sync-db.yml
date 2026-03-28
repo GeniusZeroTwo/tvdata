@@ -13,8 +13,6 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,48 +22,53 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Node.js 精准定位提取
-          node -e "
-          const fs = require('fs');
-          const content = fs.readFileSync('raw.txt', 'utf8');
-          
-          // 步骤 A: 找到 api_site 的起始位置，并截取它之后的内容
-          const startMarker = '\"api_site\"';
-          const startIndex = content.indexOf(startMarker);
-          if (startIndex === -1) {
-              console.error('未找到 api_site 节点');
-              process.exit(1);
-          }
-          
-          // 只处理 api_site 之后的内容
-          const subContent = content.substring(startIndex + startMarker.length);
-          const result = { sites: [] };
-          
-          // 步骤 B: 匹配内部的所有站点块
-          // 这个正则匹配: \"域名\": { 内容 }
-          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([\s\S]*?)\}/g;
-          
-          let match;
-          while ((match = entryRegex.exec(subContent)) !== null) {
-              const key = match[1];
-              const body = match[2];
+          # 2. 使用 Python 脚本进行强力提取 (避开 Shell 括号报错)
+          python3 -c "
+          import re, json
+
+          try:
+              with open('raw.txt', 'r', encoding='utf-8') as f:
+                  content = f.read()
+
+              # 核心逻辑：定位到 api_site 之后的内容，确保不漏掉第一项
+              start_marker = '\"api_site\"'
+              start_index = content.find(start_marker)
+              if start_index != -1:
+                  content = content[start_index:]
+
+              result = {'sites': []}
               
-              // 再次确认 body 里面包含 name 和 api 字段（防止误抓其他杂项）
-              const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
-              const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
+              # 正则匹配：提取 \"key\": { \"name\": \"...\", \"api\": \"...\" }
+              # 这个正则非常宽松，能抓取带或不带引号的键，并提取内部字段
+              pattern = re.compile(r'\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}')
               
-              if (nameMatch && apiMatch) {
-                  result.sites.push({
-                      key: key,
-                      name: nameMatch[1],
-                      api: apiMatch[1],
-                      active: true
-                  });
-              }
-          }
-          
-          fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('转换成功！共提取 ' + result.sites.length + ' 个站点。');
+              for match in pattern.finditer(content):
+                  key = match.group(1)
+                  body = match.group(2)
+
+                  # 排除掉包装层
+                  if key in ['api_site', 'cache_time']:
+                      continue
+
+                  # 在 body 中查找 name 和 api
+                  name_match = re.search(r'\"name\"\s*:\s*\"([^\"]+)\"', body)
+                  api_match = re.search(r'\"(?:api|url)\"\s*:\s*\"([^\"]+)\"', body)
+
+                  if name_match and api_match:
+                      result['sites'].append({
+                          'key': key,
+                          'name': name_match[1],
+                          'api': api_match[1],
+                          'active': True
+                      })
+
+              with open('db.json', 'w', encoding='utf-8') as f:
+                  json.dump(result, f, indent=2, ensure_ascii=False)
+              
+              print(f'成功转换了 {len(result[\"sites\"])} 个站点')
+          except Exception as e:
+              print(f'处理失败: {e}')
+              exit(1)
           "
 
       - name: Configure Git
@@ -76,9 +79,10 @@ jobs:
       - name: Commit and Push
         run: |
           git add db.json
-          if [ -n \"\$(git status --porcelain)\" ]; then
-            git commit -m \"chore: fix first item missing issue\"
+          # 检查是否有变化，防止空提交报错
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "chore: robust sync and fix first item issue"
             git push
           else
-            echo \"No changes to commit\"
+            echo "No changes to commit"
           fi
