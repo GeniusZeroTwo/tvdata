@@ -24,38 +24,25 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
           
-          # 2. 使用 Node.js 提取所有站点
+          # 2. 使用 Node.js 逐行扫描提取，不解析 JSON，防止报错
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
-          
-          // 清理注释
-          const cleanContent = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
-          
           const result = { sites: [] };
           
-          /**
-           * 正则说明：
-           * \"([^\"]+)\"  -> 匹配双引号内的域名 (Key)
-           * \s*:\s*\{     -> 匹配冒号和大括号
-           * ([\s\S]*?)    -> 匹配大括号内的所有内容 (Body)
-           * \}(?=\s*\"|,|\s*\}) -> 匹配结束大括号，且后面跟着下一个键或结束符
-           */
-          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([\s\S]*?)\}(?=\s*\"|,|\s*\})/g;
-          
+          // 匹配模式：查找 \"域名\": { ... } 结构
+          // 我们直接提取每组数据的 key, name 和 api
+          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([^}]+)\}/g;
           let match;
-          while ((match = entryRegex.exec(cleanContent)) !== null) {
+          
+          while ((match = entryRegex.exec(content)) !== null) {
               const key = match[1];
               const body = match[2];
               
-              // 排除非站点项
-              if (['api_site', 'cache_time'].includes(key)) continue;
-              
-              // 在 body 中精准提取 name 和 api
+              // 在 body 中提取 name 和 api/url
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
-              const apiMatch = body.match(/\"api\"\s*:\s*\"([^\"]+)\"/);
+              const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
               
-              // 只有同时具备 name 和 api 的才被视为有效站点
               if (nameMatch && apiMatch) {
                   result.sites.push({
                       key: key,
@@ -67,7 +54,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('Successfully processed ' + result.sites.length + ' sites.');
+          console.log('Successfully extracted ' + result.sites.length + ' sites.');
           "
 
       - name: Configure Git
@@ -79,8 +66,8 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: fixed sync logic to capture all site items"
+            git commit -m "chore: robust sync using regex extraction"
             git push
           else
-            echo "No changes detected."
+            echo "No changes to commit"
           fi
