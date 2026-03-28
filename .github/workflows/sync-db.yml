@@ -12,7 +12,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # 解决 Node.js 20 弃用警告
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,18 +22,19 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.json
           
-          # 2. 使用 jq 重新构造 JSON
-          # 逻辑：提取原 json 中的 urls 数组，遍历并生成新格式
+          # 2. 使用 jq 处理对象结构并转换为数组
+          # to_entries 会把 {"k": {"name": "..."}} 变成 [{"key": "k", "value": {"name": "..."}}]
+          # 然后我们重新构造每一个元素
           cat raw.json | jq '{
-            sites: [ .urls[] | {
-              key: ("k" + (now * 1000000 | floor | tostring | .[-6:]) + (1000 | random | tostring)),
-              name: .name,
-              api: .url,
+            sites: [ to_entries[] | {
+              key: .key,
+              name: .value.name,
+              api: .value.api,
               active: true
             } ]
           }' > db.json
           
-          # 验证生成的文件是否有效
+          # 打印结果检查格式
           cat db.json
 
       - name: Configure Git
@@ -45,7 +46,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync and format db.json with custom keys"
+            git commit -m "chore: convert object to sites array"
             git push
           else
             echo "No changes to commit"
