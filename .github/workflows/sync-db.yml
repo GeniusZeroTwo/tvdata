@@ -1,9 +1,12 @@
 name: Sync and Format db.json
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "0 0 */5 * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,13 +23,15 @@ jobs:
       - name: Download and Process JSON
         run: |
           # 1. 下载原始文件
-          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw_with_comments.json
+          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw_src.json
           
-          # 2. 清理注释 (移除 // 及其后的内容) 并转换为标准 JSON
-          # 然后使用 jq 将对象键名转为 "key" 字段
-          cat raw_with_comments.json | \
-          sed 's/\/\/.*//g' | \
-          jq '{
+          # 2. 强力清理：移除 // 和 /* */ 注释，同时保护 https://
+          # 使用 perl 的正则处理比 sed 更安全
+          perl -0777 -pe 's/\/\*[\s\S]*?\*\/|\/\/(?!\/)[^\n\r]*//g' raw_src.json > clean.json
+          
+          # 3. 转换格式
+          # 将对象键名转为 key 字段，并确保输出的是 sites 数组
+          cat clean.json | jq '{
             sites: [ to_entries[] | {
               key: .key,
               name: .value.name,
@@ -35,7 +40,7 @@ jobs:
             } ]
           }' > db.json
           
-          # 3. 验证结果
+          # 打印结果前 20 行进行确认
           head -n 20 db.json
 
       - name: Configure Git
@@ -47,7 +52,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync sites, remove comments and format keys"
+            git commit -m "chore: auto sync and format db.json"
             git push
           else
             echo "No changes to commit"
