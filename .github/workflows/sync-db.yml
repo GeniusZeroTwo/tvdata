@@ -1,9 +1,9 @@
 name: Sync db.json
 
 on:
-schedule:
-- cron: "0 0 */5 * *"
 workflow_dispatch:
+schedule:
+- cron: '0 0 */5 * *'
 
 permissions:
 contents: write
@@ -16,18 +16,20 @@ steps:
 - name: Checkout repository
 uses: actions/checkout@v4
 
-- name: Download and create/update db.json
+- name: Download source file
+shell: bash
 run: |
 curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o db.json
 
 - name: Commit and push if changed
+shell: bash
 run: |
-git config user.name "github-actions[bot]"
-git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+git config --global user.name "github-actions[bot]"
+git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com]"
 git add db.json
-if ! git diff --cached --quiet; then
+if git diff --cached --quiet; then
+echo "No changes to commit"
+else
 git commit -m "chore: sync db.json from LunaTV-config"
 git push
-else
-echo "No changes to commit"
 fi
