@@ -2,10 +2,10 @@ name: Sync and Format db.json
 
 on:
   push:
-    branches: [ main ]  # 每次你修改代码并推送时触发
+    branches: [ main ]
   schedule:
-    - cron: "0 0 */5 * *" # 每五天自动同步一次
-  workflow_dispatch:    # 允许你在 Actions 页面手动点击运行
+    - cron: "0 0 */5 * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,46 +22,39 @@ jobs:
       - name: Download and Process JSON
         run: |
           # 1. 下载原始文件
-          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.js
+          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
           
-          # 2. 使用 Node.js 进行精准格式转换
+          # 2. 使用 Node.js 逐行扫描提取，不解析 JSON，防止报错
           node -e "
           const fs = require('fs');
-          try {
-            let content = fs.readFileSync('raw.js', 'utf8');
-            
-            // 强力清洗：移除所有 // 和 /* */ 注释，防止解析失败
-            content = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
-            
-            // 移除 JSON 末尾多余的逗号
-            content = content.replace(/,[ \t\r\n]*([}\]])/g, '\$1');
-
-            // 解析数据（支持标准 JSON 和 宽松格式）
-            let data;
-            try {
-              data = JSON.parse(content);
-            } catch(e) {
-              // 如果标准解析失败，尝试 eval（处理 JS 对象风格）
-              data = eval('(' + content + ')');
-            }
-
-            // 构造目标格式：只要 sites 数组，字段只要 key, name, api, active
-            const result = {
-              sites: Object.entries(data).map(([key, val]) => ({
-                key: key,
-                name: val.name || '',
-                api: val.api || val.url || '',
-                active: true
-              }))
-            };
-
-            // 写入 db.json，不保留 detail 项
-            fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-            console.log('转换成功：db.json 已生成');
-          } catch (err) {
-            console.error('处理失败:', err.message);
-            process.exit(1);
+          const content = fs.readFileSync('raw.txt', 'utf8');
+          const result = { sites: [] };
+          
+          // 匹配模式：查找 \"域名\": { ... } 结构
+          // 我们直接提取每组数据的 key, name 和 api
+          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([^}]+)\}/g;
+          let match;
+          
+          while ((match = entryRegex.exec(content)) !== null) {
+              const key = match[1];
+              const body = match[2];
+              
+              // 在 body 中提取 name 和 api/url
+              const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
+              const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
+              
+              if (nameMatch && apiMatch) {
+                  result.sites.push({
+                      key: key,
+                      name: nameMatch[1],
+                      api: apiMatch[1],
+                      active: true
+                  });
+              }
           }
+          
+          fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
+          console.log('Successfully extracted ' + result.sites.length + ' sites.');
           "
 
       - name: Configure Git
@@ -73,8 +66,8 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync and reformulate sites array"
+            git commit -m "chore: robust sync using regex extraction"
             git push
           else
-            echo "没有检测到内容变化，跳过推送。"
+            echo "No changes to commit"
           fi
