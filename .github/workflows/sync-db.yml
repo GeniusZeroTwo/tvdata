@@ -24,36 +24,38 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
           
-          # 2. 深度扫描：不再依赖引号，直接匹配大括号块
+          # 2. 使用 Node.js 提取所有站点
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
+          
+          // 清理注释
+          const cleanContent = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+          
           const result = { sites: [] };
           
-          // 正则逻辑：
-          // 1. 匹配 站点Key (带或不带引号)
-          // 2. 匹配 紧随其后的大括号内容
-          // 3. 确保内容里包含 name 字段
-          const entryRegex = /([\w\.\-]+)\s*\"\s*:\s*\{([\s\S]*?)\}/g;
-          
-          // 针对 LunaTV 这种特殊格式，我们先去掉干扰注释
-          const cleanContent = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
-
-          // 匹配带引号或不带引号的 Key
-          // 格式如 \"iqiyizyapi.com\": { ... } 或 iqiyizyapi.com: { ... }
-          const refinedRegex = /\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}/g;
+          /**
+           * 正则说明：
+           * \"([^\"]+)\"  -> 匹配双引号内的域名 (Key)
+           * \s*:\s*\{     -> 匹配冒号和大括号
+           * ([\s\S]*?)    -> 匹配大括号内的所有内容 (Body)
+           * \}(?=\s*\"|,|\s*\}) -> 匹配结束大括号，且后面跟着下一个键或结束符
+           */
+          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([\s\S]*?)\}(?=\s*\"|,|\s*\})/g;
           
           let match;
-          while ((match = refinedRegex.exec(cleanContent)) !== null) {
+          while ((match = entryRegex.exec(cleanContent)) !== null) {
               const key = match[1];
               const body = match[2];
               
-              // 排除外层容器和无关项
-              if (['api_site', 'cache_time', 'video_extension'].includes(key)) continue;
+              // 排除非站点项
+              if (['api_site', 'cache_time'].includes(key)) continue;
               
+              // 在 body 中精准提取 name 和 api
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
-              const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
+              const apiMatch = body.match(/\"api\"\s*:\s*\"([^\"]+)\"/);
               
+              // 只有同时具备 name 和 api 的才被视为有效站点
               if (nameMatch && apiMatch) {
                   result.sites.push({
                       key: key,
@@ -65,7 +67,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('成功提取了 ' + result.sites.length + ' 个站点。');
+          console.log('Successfully processed ' + result.sites.length + ' sites.');
           "
 
       - name: Configure Git
@@ -77,8 +79,8 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: fixed first item missing issue"
+            git commit -m "chore: fixed sync logic to capture all site items"
             git push
           else
-            echo "没有内容变化。"
+            echo "No changes detected."
           fi
