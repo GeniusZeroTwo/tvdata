@@ -22,9 +22,9 @@ jobs:
       - name: Download and Process JSON
         run: |
           # 1. 下载原始文件
-          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
+          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Node.js 提取并过滤 🔞 内容
+          # 2. 使用 Node.js 提取全部站点数据
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
@@ -38,23 +38,16 @@ jobs:
               const key = match[1];
               const body = match[2];
               
-              // 过滤掉最外层的 api_site 标签
-              if (key === 'api_site') continue;
+              // 排除外层非站点标签
+              if (['api_site', 'cache_time'].includes(key)) continue;
 
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
               const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
               
               if (nameMatch && apiMatch) {
-                  const siteName = nameMatch[1];
-                  
-                  // --- 核心修改：不提取包含 🔞 字符的站点 ---
-                  if (siteName.includes('🔞')) {
-                      continue; 
-                  }
-                  
                   result.sites.push({
                       key: key,
-                      name: siteName,
+                      name: nameMatch[1],
                       api: apiMatch[1],
                       active: true
                   });
@@ -62,7 +55,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('Successfully extracted ' + result.sites.length + ' clean sites.');
+          console.log('成功提取：' + result.sites.length + ' 个站点已同步至 db.json');
           "
 
       - name: Configure Git
@@ -74,7 +67,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync db.json and filter out restricted content"
+            git commit -m "chore: sync all sites from jin18.json"
             git push
           else
             echo "No changes to commit"
