@@ -22,54 +22,48 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Python 脚本进行强力提取 (避开 Shell 括号报错)
+          # 2. 使用 Python 提取数据 (稳定版)
           python3 -c "
           import re, json
 
-          try:
-              with open('raw.txt', 'r', encoding='utf-8') as f:
-                  content = f.read()
+          with open('raw.txt', 'r', encoding='utf-8') as f:
+              content = f.read()
 
-              # 核心逻辑：定位到 api_site 之后的内容，确保不漏掉第一项
-              start_marker = '\"api_site\"'
-              start_index = content.find(start_marker)
-              if start_index != -1:
-                  content = content[start_index:]
+          # 定位 api_site，防止漏掉第一项
+          start_marker = '\"api_site\"'
+          start_index = content.find(start_marker)
+          if start_index != -1:
+              content = content[start_index:]
 
-              result = {'sites': []}
-              
-              # 正则匹配：提取 \"key\": { \"name\": \"...\", \"api\": \"...\" }
-              # 这个正则非常宽松，能抓取带或不带引号的键，并提取内部字段
-              pattern = re.compile(r'\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}')
-              
-              for match in pattern.finditer(content):
-                  key = match.group(1)
-                  body = match.group(2)
+          result = {'sites': []}
+          pattern = re.compile(r'\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}')
+          
+          for match in pattern.finditer(content):
+              key = match.group(1)
+              body = match.group(2)
 
-                  # 排除掉包装层
-                  if key in ['api_site', 'cache_time']:
-                      continue
+              if key in ['api_site', 'cache_time']:
+                  continue
 
-                  # 在 body 中查找 name 和 api
-                  name_match = re.search(r'\"name\"\s*:\s*\"([^\"]+)\"', body)
-                  api_match = re.search(r'\"(?:api|url)\"\s*:\s*\"([^\"]+)\"', body)
+              name_match = re.search(r'\"name\"\s*:\s*\"([^\"]+)\"', body)
+              api_match = re.search(r'\"(?:api|url)\"\s*:\s*\"([^\"]+)\"', body)
 
-                  if name_match and api_match:
-                      result['sites'].append({
-                          'key': key,
-                          'name': name_match[1],
-                          'api': api_match[1],
-                          'active': True
-                      })
+              if name_match and api_match:
+                  result['sites'].append({
+                      'key': key,
+                      'name': name_match[1],
+                      'api': api_match[1],
+                      'active': True
+                  })
 
-              with open('db.json', 'w', encoding='utf-8') as f:
-                  json.dump(result, f, indent=2, ensure_ascii=False)
-              
-              print(f'成功转换了 {len(result[\"sites\"])} 个站点')
-          except Exception as e:
-              print(f'处理失败: {e}')
-              exit(1)
+          with open('db.json', 'w', encoding='utf-8') as f:
+              json.dump(result, f, indent=2, ensure_ascii=False)
+          
+          print(f'处理成功！提取了 {len(result[\"sites\"])} 个站点。')
           "
+          
+          # 3. 清理临时文件，防止干扰 Git
+          rm raw.txt
 
       - name: Configure Git
         run: |
@@ -79,10 +73,10 @@ jobs:
       - name: Commit and Push
         run: |
           git add db.json
-          # 检查是否有变化，防止空提交报错
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: robust sync and fix first item issue"
+          # 精准检查：只有暂存区确实有变化时，才执行 commit
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync db.json from jin18.json"
             git push
           else
-            echo "No changes to commit"
+            echo "没有检测到 db.json 的变化，跳过提交。"
           fi
