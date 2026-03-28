@@ -24,23 +24,32 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
           
-          # 2. 优化后的正则：精准定位包含 name 的站点块
+          # 2. 深度扫描：不再依赖引号，直接匹配大括号块
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
           const result = { sites: [] };
           
-          // 匹配模式：查找 \"域名\": { ... name: ... } 结构
-          // 我们增加一个限制：body 必须包含 name 字段，且 key 不能是 api_site
-          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([^}]+name[^}]+)\}/g;
-          let match;
+          // 正则逻辑：
+          // 1. 匹配 站点Key (带或不带引号)
+          // 2. 匹配 紧随其后的大括号内容
+          // 3. 确保内容里包含 name 字段
+          const entryRegex = /([\w\.\-]+)\s*\"\s*:\s*\{([\s\S]*?)\}/g;
           
-          while ((match = entryRegex.exec(content)) !== null) {
+          // 针对 LunaTV 这种特殊格式，我们先去掉干扰注释
+          const cleanContent = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+
+          // 匹配带引号或不带引号的 Key
+          // 格式如 \"iqiyizyapi.com\": { ... } 或 iqiyizyapi.com: { ... }
+          const refinedRegex = /\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}/g;
+          
+          let match;
+          while ((match = refinedRegex.exec(cleanContent)) !== null) {
               const key = match[1];
               const body = match[2];
               
-              // 排除掉 api_site 这一层
-              if (key === 'api_site') continue;
+              // 排除外层容器和无关项
+              if (['api_site', 'cache_time', 'video_extension'].includes(key)) continue;
               
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
               const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
@@ -56,7 +65,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('Successfully extracted ' + result.sites.length + ' sites.');
+          console.log('成功提取了 ' + result.sites.length + ' 个站点。');
           "
 
       - name: Configure Git
@@ -68,8 +77,8 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: fix api_site key issue and sync"
+            git commit -m "chore: fixed first item missing issue"
             git push
           else
-            echo "No changes to commit"
+            echo "没有内容变化。"
           fi
