@@ -22,47 +22,53 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Python 提取数据 (稳定版)
+          # 2. 使用 Python 原生 JSON 引擎进行降维打击
           python3 -c "
-          import re, json
+          import json, re
 
           with open('raw.txt', 'r', encoding='utf-8') as f:
-              content = f.read()
+              text = f.read()
 
-          # 定位 api_site，防止漏掉第一项
-          start_marker = '\"api_site\"'
-          start_index = content.find(start_marker)
-          if start_index != -1:
-              content = content[start_index:]
+          # 预处理：清洗掉可能导致解析失败的 JS 注释和多余的逗号
+          text = re.sub(r'/\*[\s\S]*?\*/', '', text)
+          text = re.sub(r'//.*', '', text)
+          text = re.sub(r',\s*([}\]])', r'\1', text)
+
+          try:
+              # 将文本真正转化为层级明确的字典对象
+              data = json.loads(text)
+          except Exception as e:
+              print(f'JSON 解析失败: {e}')
+              exit(1)
 
           result = {'sites': []}
-          pattern = re.compile(r'\"?([\w\.\-]+)\"?\s*:\s*\{([\s\S]*?)\}')
           
-          for match in pattern.finditer(content):
-              key = match.group(1)
-              body = match.group(2)
-
-              if key in ['api_site', 'cache_time']:
-                  continue
-
-              name_match = re.search(r'\"name\"\s*:\s*\"([^\"]+)\"', body)
-              api_match = re.search(r'\"(?:api|url)\"\s*:\s*\"([^\"]+)\"', body)
-
-              if name_match and api_match:
-                  result['sites'].append({
-                      'key': key,
-                      'name': name_match[1],
-                      'api': api_match[1],
-                      'active': True
-                  })
+          # 精准制导：直接获取 api_site 这个层级下的所有内容
+          api_sites = data.get('api_site', {})
+          
+          for key, info in api_sites.items():
+              if isinstance(info, dict) and 'name' in info:
+                  api_url = info.get('api') or info.get('url')
+                  if api_url:
+                      result['sites'].append({
+                          'key': key,
+                          'name': info['name'],
+                          'api': api_url,
+                          'active': True
+                      })
 
           with open('db.json', 'w', encoding='utf-8') as f:
               json.dump(result, f, indent=2, ensure_ascii=False)
-          
-          print(f'处理成功！提取了 {len(result[\"sites\"])} 个站点。')
+
+          # 打印成功日志，并特别展示抓取到的第一项
+          if result['sites']:
+              print(f'成功提取了 {len(result[\"sites\"])} 个站点！')
+              print(f'第一项是: {result[\"sites\"][0][\"name\"]} ({result[\"sites\"][0][\"key\"]})')
+          else:
+              print('没有提取到任何站点。')
           "
           
-          # 3. 清理临时文件，防止干扰 Git
+          # 3. 删除临时文件
           rm raw.txt
 
       - name: Configure Git
@@ -73,10 +79,9 @@ jobs:
       - name: Commit and Push
         run: |
           git add db.json
-          # 精准检查：只有暂存区确实有变化时，才执行 commit
           if ! git diff --cached --quiet; then
-            git commit -m "chore: sync db.json from jin18.json"
+            git commit -m "chore: use native json parser to fix missing first item"
             git push
           else
-            echo "没有检测到 db.json 的变化，跳过提交。"
+            echo "数据未发生变化，跳过提交。"
           fi
