@@ -24,23 +24,33 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Node.js 提取全部站点数据
+          # 2. 使用 Node.js 精准定位提取
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
+          
+          // 步骤 A: 找到 api_site 的起始位置，并截取它之后的内容
+          const startMarker = '\"api_site\"';
+          const startIndex = content.indexOf(startMarker);
+          if (startIndex === -1) {
+              console.error('未找到 api_site 节点');
+              process.exit(1);
+          }
+          
+          // 只处理 api_site 之后的内容
+          const subContent = content.substring(startIndex + startMarker.length);
           const result = { sites: [] };
           
-          // 匹配模式：查找 \"域名\": { ... } 结构
-          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([^}]+)\}/g;
-          let match;
+          // 步骤 B: 匹配内部的所有站点块
+          // 这个正则匹配: \"域名\": { 内容 }
+          const entryRegex = /\"([^\"]+)\"\s*:\s*\{([\s\S]*?)\}/g;
           
-          while ((match = entryRegex.exec(content)) !== null) {
+          let match;
+          while ((match = entryRegex.exec(subContent)) !== null) {
               const key = match[1];
               const body = match[2];
               
-              // 排除外层非站点标签
-              if (['api_site', 'cache_time'].includes(key)) continue;
-
+              // 再次确认 body 里面包含 name 和 api 字段（防止误抓其他杂项）
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
               const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
               
@@ -55,7 +65,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('成功提取：' + result.sites.length + ' 个站点已同步至 db.json');
+          console.log('转换成功！共提取 ' + result.sites.length + ' 个站点。');
           "
 
       - name: Configure Git
@@ -66,9 +76,9 @@ jobs:
       - name: Commit and Push
         run: |
           git add db.json
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync all sites from jin18.json"
+          if [ -n \"\$(git status --porcelain)\" ]; then
+            git commit -m \"chore: fix first item missing issue\"
             git push
           else
-            echo "No changes to commit"
+            echo \"No changes to commit\"
           fi
