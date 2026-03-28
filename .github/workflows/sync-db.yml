@@ -11,29 +11,30 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # 解决 Node.js 20 弃用警告
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Download and Process JSON
         run: |
-          # 1. 下载原始文件到临时文件
+          # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.json
           
-          # 2. 使用 jq 转换格式
-          # 注意：这里假设原始文件的格式是数组或是包含 api/name 的结构
-          # 我们遍历每一项，生成随机 UUID 作为 key
+          # 2. 使用 jq 重新构造 JSON
+          # 逻辑：提取原 json 中的 urls 数组，遍历并生成新格式
           cat raw.json | jq '{
-            sites: [ .[] | {
-              key: ("k" + (1000000000 | random | tostring)), 
+            sites: [ .urls[] | {
+              key: ("k" + (now * 1000000 | floor | tostring | .[-6:]) + (1000 | random | tostring)),
               name: .name,
-              api: .api,
+              api: .url,
               active: true
             } ]
           }' > db.json
           
-          # 3. 删除临时文件
-          rm raw.json
+          # 验证生成的文件是否有效
+          cat db.json
 
       - name: Configure Git
         run: |
@@ -44,7 +45,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: sync and format db.json with random keys"
+            git commit -m "chore: sync and format db.json with custom keys"
             git push
           else
             echo "No changes to commit"
