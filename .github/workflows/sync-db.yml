@@ -22,53 +22,49 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/main/jin18.json" -o raw.txt
           
-          # 2. 使用 Python 原生 JSON 引擎进行降维打击
-          python3 -c "
-          import json, re
+          # 2. 免疫报错的降维提取法
+          python3 -c '
+          import re, json
 
-          with open('raw.txt', 'r', encoding='utf-8') as f:
-              text = f.read()
+          with open("raw.txt", "r", encoding="utf-8") as f:
+              content = f.read()
 
-          # 预处理：清洗掉可能导致解析失败的 JS 注释和多余的逗号
-          text = re.sub(r'/\*[\s\S]*?\*/', '', text)
-          text = re.sub(r'//.*', '', text)
-          text = re.sub(r',\s*([}\]])', r'\1', text)
-
-          try:
-              # 将文本真正转化为层级明确的字典对象
-              data = json.loads(text)
-          except Exception as e:
-              print(f'JSON 解析失败: {e}')
-              exit(1)
-
-          result = {'sites': []}
+          result = {"sites": []}
           
-          # 精准制导：直接获取 api_site 这个层级下的所有内容
-          api_sites = data.get('api_site', {})
-          
-          for key, info in api_sites.items():
-              if isinstance(info, dict) and 'name' in info:
-                  api_url = info.get('api') or info.get('url')
-                  if api_url:
-                      result['sites'].append({
-                          'key': key,
-                          'name': info['name'],
-                          'api': api_url,
-                          'active': True
-                      })
+          # 魔法正则：只匹配没有嵌套大括号的“最内层对象”
+          # 这样能完美跳过 api_site 外壳，精准抓到第一项和后面的每一项
+          pattern = re.compile(r"\"([^\"]+)\"\s*:\s*\{([^{}]+)\}")
 
-          with open('db.json', 'w', encoding='utf-8') as f:
+          for match in pattern.finditer(content):
+              key = match.group(1)
+              body = match.group(2)
+
+              # 在提取的内容块中寻找 name 和 api
+              name_match = re.search(r"\"name\"\s*:\s*\"([^\"]+)\"", body)
+              api_match = re.search(r"\"(?:api|url)\"\s*:\s*\"([^\"]+)\"", body)
+
+              if name_match and api_match:
+                  result["sites"].append({
+                      "key": key,
+                      "name": name_match.group(1),
+                      "api": api_match.group(1),
+                      "active": True
+                  })
+
+          with open("db.json", "w", encoding="utf-8") as f:
               json.dump(result, f, indent=2, ensure_ascii=False)
 
-          # 打印成功日志，并特别展示抓取到的第一项
-          if result['sites']:
-              print(f'成功提取了 {len(result[\"sites\"])} 个站点！')
-              print(f'第一项是: {result[\"sites\"][0][\"name\"]} ({result[\"sites\"][0][\"key\"]})')
+          count = len(result["sites"])
+          print(f"处理成功！提取了 {count} 个站点。")
+          if count > 0:
+              first_name = result["sites"][0]["name"]
+              first_key = result["sites"][0]["key"]
+              print(f"第一项是: {first_name} ({first_key})")
           else:
-              print('没有提取到任何站点。')
-          "
+              print("未提取到任何站点，请检查源文件。")
+          '
           
-          # 3. 删除临时文件
+          # 3. 销毁临时文件
           rm raw.txt
 
       - name: Configure Git
@@ -80,7 +76,7 @@ jobs:
         run: |
           git add db.json
           if ! git diff --cached --quiet; then
-            git commit -m "chore: use native json parser to fix missing first item"
+            git commit -m "chore: robust inner-block extraction to bypass invalid JSON chars"
             git push
           else
             echo "数据未发生变化，跳过提交。"
