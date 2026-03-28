@@ -2,11 +2,10 @@ name: Sync and Format db.json
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ] # 每次修改代码时触发
   schedule:
-    - cron: "0 0 */5 * *"
-  workflow_dispatch:
+    - cron: "0 0 */5 * *" # 每五天自动同步
+  workflow_dispatch: # 允许手动点击触发
 
 permissions:
   contents: write
@@ -14,34 +13,51 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
       - name: Download and Process JSON
         run: |
           # 1. 下载原始文件
-          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw_src.json
+          curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.json
           
-          # 2. 强力清理：移除 // 和 /* */ 注释，同时保护 https://
-          # 使用 perl 的正则处理比 sed 更安全
-          perl -0777 -pe 's/\/\*[\s\S]*?\*\/|\/\/(?!\/)[^\n\r]*//g' raw_src.json > clean.json
-          
-          # 3. 转换格式
-          # 将对象键名转为 key 字段，并确保输出的是 sites 数组
-          cat clean.json | jq '{
-            sites: [ to_entries[] | {
-              key: .key,
-              name: .value.name,
-              api: .value.api,
-              active: true
-            } ]
-          }' > db.json
-          
-          # 打印结果前 20 行进行确认
-          head -n 20 db.json
+          # 2. 使用 Python 进行强力清洗和格式转换
+          python3 -c "
+          import json, re
+
+          def clean_json(text):
+              # 移除 // 注释
+              text = re.sub(r'//.*', '', text)
+              # 移除 /* */ 注释
+              text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+              return text
+
+          with open('raw.json', 'r', encoding='utf-8') as f:
+              content = clean_json(f.read())
+              # 尝试解析并转换
+              try:
+                  data = json.loads(content)
+                  new_data = {'sites': []}
+                  for key, val in data.items():
+                      new_data['sites'].append({
+                          'key': key,
+                          'name': val.get('name', ''),
+                          'api': val.get('api', val.get('url', '')), # 自动兼容 api 或 url 字段
+                          'active': True
+                      })
+                  with open('db.json', 'w', encoding='utf-8') as wf:
+                      json.dump(new_data, wf, indent=2, ensure_ascii=False)
+                  print('JSON processed successfully.')
+              except Exception as e:
+                  print(f'Error processing JSON: {e}')
+                  exit(1)
+          "
 
       - name: Configure Git
         run: |
@@ -52,8 +68,8 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: auto sync and format db.json"
+            git commit -m "chore: auto sync and format db.json (Python Cleaned)"
             git push
           else
-            echo "No changes to commit"
+            echo "No changes detected, skipping push."
           fi
