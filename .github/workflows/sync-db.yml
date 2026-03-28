@@ -24,14 +24,13 @@ jobs:
           # 1. 下载原始文件
           curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o raw.txt
           
-          # 2. 使用 Node.js 逐行扫描提取，不解析 JSON，防止报错
+          # 2. 使用 Node.js 提取并过滤 🔞 内容
           node -e "
           const fs = require('fs');
           const content = fs.readFileSync('raw.txt', 'utf8');
           const result = { sites: [] };
           
           // 匹配模式：查找 \"域名\": { ... } 结构
-          // 我们直接提取每组数据的 key, name 和 api
           const entryRegex = /\"([^\"]+)\"\s*:\s*\{([^}]+)\}/g;
           let match;
           
@@ -39,14 +38,23 @@ jobs:
               const key = match[1];
               const body = match[2];
               
-              // 在 body 中提取 name 和 api/url
+              // 过滤掉最外层的 api_site 标签
+              if (key === 'api_site') continue;
+
               const nameMatch = body.match(/\"name\"\s*:\s*\"([^\"]+)\"/);
               const apiMatch = body.match(/\"(?:api|url)\"\s*:\s*\"([^\"]+)\"/);
               
               if (nameMatch && apiMatch) {
+                  const siteName = nameMatch[1];
+                  
+                  // --- 核心修改：不提取包含 🔞 字符的站点 ---
+                  if (siteName.includes('🔞')) {
+                      continue; 
+                  }
+                  
                   result.sites.push({
                       key: key,
-                      name: nameMatch[1],
+                      name: siteName,
                       api: apiMatch[1],
                       active: true
                   });
@@ -54,7 +62,7 @@ jobs:
           }
           
           fs.writeFileSync('db.json', JSON.stringify(result, null, 2));
-          console.log('Successfully extracted ' + result.sites.length + ' sites.');
+          console.log('Successfully extracted ' + result.sites.length + ' clean sites.');
           "
 
       - name: Configure Git
@@ -66,7 +74,7 @@ jobs:
         run: |
           git add db.json
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "chore: robust sync using regex extraction"
+            git commit -m "chore: sync db.json and filter out restricted content"
             git push
           else
             echo "No changes to commit"
