@@ -1,22 +1,22 @@
 name: Sync db.json
+
 on:
   workflow_dispatch:
   schedule:
     - cron: "0 0 */5 * *"
+
 permissions:
   contents: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Download db.json
         run: curl -L "https://raw.githubusercontent.com/hafrey1/LunaTV-config/5fc287be7ee6a21710ab4b6a20abe974ee33f517/LunaTV-config.json" -o db.json
-      - name: Commit changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add db.json
-          git diff --cached --quiet || git commit -m "chore: sync db.json from LunaTV-config"
-          git push
+
+      - name: Commit and Push
+        run: git config user.name "github-actions[bot]" && git config user.email "41898282+github-actions[bot]@users.noreply.github.com" && git add db.json && (git diff --cached --quiet || git commit -m "chore: sync db.json") && git push
