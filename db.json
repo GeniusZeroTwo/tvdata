@@ -7,12 +7,6 @@
       "active": true
     },
     {
-      "key": "dbzy.tv",
-      "name": "🎬豆瓣资源",
-      "api": "https://caiji.dbzy5.com/api.php/provide/vod",
-      "active": true
-    },
-    {
       "key": "mtzy.me",
       "name": "🎬茅台资源",
       "api": "https://caiji.maotaizy.cc/api.php/provide/vod",
