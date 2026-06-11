@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # 保活插件(keepalive)需要此权限来读取和维护 action 状态
 
 jobs:
   sync:
@@ -81,3 +82,9 @@ jobs:
           else
             echo "数据未发生变化，跳过提交。"
           fi
+
+      # 4. 自动保活机制 (如果上述步骤没有发生代码提交，且仓库沉寂超过一定天数，则在此处生成空提交保活)
+      - name: Keep GitHub Actions Alive
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          commit_message: "chore: auto keep-alive to prevent workflow suspension"
