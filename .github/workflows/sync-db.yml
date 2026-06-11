@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: write
-  actions: write # 保活插件(keepalive)需要此权限来读取和维护 action 状态
+  actions: write
 
 jobs:
   sync:
@@ -73,18 +73,33 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit and Push
+      - name: Commit / Push / Native Keep-alive
         run: |
           git add db.json
           if ! git diff --cached --quiet; then
+            # 正常情况：数据有变化，正常提交
             git commit -m "chore: robust inner-block extraction to bypass invalid JSON chars"
             git push
+            echo "数据已发生变化并成功同步提交。"
           else
-            echo "数据未发生变化，跳过提交。"
+            # 数据无变化，启动原生保活检测机制
+            echo "数据未发生变化，开始检测是否需要触发保活机制..."
+            
+            # 获取最后一次提交的时间戳和当前时间戳
+            LAST_COMMIT_TS=$(git log -1 --format="%ct")
+            CURRENT_TS=$(date +%s)
+            
+            # 计算相差天数 (86400秒 = 1天)
+            DIFF_DAYS=$(( (CURRENT_TS - LAST_COMMIT_TS) / 86400 ))
+            echo "距离仓库上次提交已过去: $DIFF_DAYS 天"
+            
+            # 如果超过 50 天没有提交，强制触发一个空提交保活
+            if [ "$DIFF_DAYS" -ge 50 ]; then
+              echo "警告：仓库即将达到 60 天闲置上限！执行自动保活空提交..."
+              git commit --allow-empty -m "chore: auto keep-alive to prevent workflow suspension"
+              git push
+              echo "保活提交完成！定时任务已续命。"
+            else
+              echo "安全：未达到 50 天危险阈值，本次跳过提交。"
+            fi
           fi
-
-      # 4. 自动保活机制 (如果上述步骤没有发生代码提交，且仓库沉寂超过一定天数，则在此处生成空提交保活)
-      - name: Keep GitHub Actions Alive
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          commit_message: "chore: auto keep-alive to prevent workflow suspension"
